@@ -27,7 +27,7 @@ pub struct DownloadProgress {
 
 pub async fn install_mongodb(app: &AppHandle) -> Result<(), String> {
     // Define the MongoDB Windows download and installation parameters
-    let mongodb_version = "6.0.4";
+    let mongodb_version = "8.0.6";
     let download_url = format!("https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-{}-signed.msi", mongodb_version);
     let installer_filename = format!("mongodb-installer-{}.msi", Uuid::new_v4());
     let installer_path = std::env::temp_dir().join(installer_filename);
@@ -378,48 +378,29 @@ async fn download_file_with_progress(app: &AppHandle, url: &str, out_path: &str)
 }
 
 async fn install_mongodb_msi(app: &AppHandle, installer_path: &str) -> Result<(), String> {
-    let log_path = format!(
-        "{}\\mongodb_install.log",
-        std::env::temp_dir().display()
-    );
-    
-    // Build the msiexec arguments with EULA acceptance
-    let args = vec![
-        "/i",
-        installer_path,
-        "/quiet",
-        "/norestart",
-        "ACCEPT_EULA=1",
-        "/log",
-        &log_path,
-    ];
-    
-    // Format arguments for PowerShell command
-    let args_quoted: Vec<String> = args
-        .iter()
-        .map(|arg| format!("\"{}\"", arg.replace('"', "\"\"")))
-        .collect();
-    
-    let ps_command = format!(
-        "Start-Process msiexec.exe -ArgumentList {} -Verb RunAs -Wait",
-        args_quoted.join(", ")
+    // Step 1: Inform the user we're starting the manual installation
+    emit_progress(
+        app, 
+        3, 
+        5, 
+        "Opening MongoDB installer. Please follow the on-screen instructions to complete the installation.", 
+        false
     );
 
+    // Step 2: Open the MSI file with the default program (Windows Installer)
     let (mut rx, _child) = app.shell()
         .command("powershell")
-        .args(["-Command", &ps_command])
+        .args([
+            "-Command",
+            &format!(
+                "Start-Process '{}' -Wait",
+                installer_path.replace('\\', "\\\\")
+            )
+        ])
         .spawn()
-        .map_err(|e| format!("Failed to spawn installation command: {}", e))?;
+        .map_err(|e| format!("Failed to open the MongoDB installer: {}", e))?;
 
-    let mut progress_count = 0;
-    emit_progress(
-        app,
-        3,
-        5,
-        "MSI installation started (admin rights required) - this may take several minutes...",
-        false,
-    );
-
+    // Step 3: Wait for the process to complete
     while let Some(event) = rx.recv().await {
         match event {
             CommandEvent::Stderr(line) => {
@@ -431,14 +412,52 @@ async fn install_mongodb_msi(app: &AppHandle, installer_path: &str) -> Result<()
             }
             CommandEvent::Terminated(status) => {
                 if status.code.unwrap_or(-1) != 0 {
-                    let log_content = fs::read_to_string(&log_path)
-                        .unwrap_or_else(|_| "Failed to read log file".to_string());
-                    return Err(format!(
-                        "Installation failed with code {:?}. Log: {}",
-                        status.code, log_content
-                    ));
+                    return Err(format!("Installation process terminated with code: {:?}", status.code));
                 }
-                emit_progress(app, 3, 5, "MongoDB installation completed", false);
+                emit_progress(app, 3, 5, "MongoDB installation wizard completed", false);
+            }
+            _ => {}
+        }
+    }
+
+    // Step 4: Verify installation
+    emit_progress(app, 3, 5, "Verifying MongoDB installation...", false);
+    
+    // Give the installer a moment to finish
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    
+    // Check for MongoDB installation path
+    let (mut rx_verify, _child_verify) = app.shell()
+        .command("powershell")
+        .args([
+            "-Command",
+            "Test-Path 'C:\\Program Files\\MongoDB\\Server'"
+        ])
+        .spawn()
+        .map_err(|e| format!("Failed to verify installation: {}", e))?;
+    
+    let mut is_installed = false;
+    
+    while let Some(event) = rx_verify.recv().await {
+        match event {
+            CommandEvent::Stdout(line) => {
+                let output = String::from_utf8_lossy(&line).trim().to_string();
+                if output.to_lowercase() == "true" {
+                    is_installed = true;
+                }
+            }
+            CommandEvent::Terminated(_) => {
+                if !is_installed {
+                    emit_progress(
+                        app, 
+                        3, 
+                        5, 
+                        "Warning: Could not verify MongoDB installation. If installation failed, please try again.",
+                        true
+                    );
+                } else {
+                    emit_progress(app, 3, 5, "MongoDB installation verified successfully", false);
+                }
             }
             _ => {}
         }

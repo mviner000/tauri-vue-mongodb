@@ -249,7 +249,7 @@ onMounted(() => {
       </p>
       
       <p class="text-sm text-muted-foreground text-center mt-2">
-        This will install MongoDB 6.0.4. Requires administrator privileges.
+        This will install MongoDB 8.0.6. Requires administrator privileges.
       </p>
     </div>
 
