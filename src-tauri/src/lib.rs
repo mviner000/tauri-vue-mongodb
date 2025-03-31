@@ -47,7 +47,6 @@ pub fn run() {
             mongodb_manager::update_document,
             mongodb_manager::delete_document,
             mongodb_manager::list_collections,
-            
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

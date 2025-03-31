@@ -1,4 +1,4 @@
-// src/mongodb_installer.rs
+// src/mongodb_installer/ubuntu.rs
 
 use tauri::AppHandle;
 use tauri_plugin_shell::process::CommandEvent;
@@ -12,8 +12,8 @@ use tauri::Emitter;
 use tauri_plugin_shell::ShellExt;
 
 #[derive(Serialize, Deserialize, Clone)]
-struct SudoPasswordRequest {
-    request_id: String,
+pub struct SudoPasswordRequest {
+    pub request_id: String,
 }
 
 async fn get_sudo_password(app: &AppHandle) -> Result<String, anyhow::Error> {
@@ -50,7 +50,6 @@ async fn get_sudo_password(app: &AppHandle) -> Result<String, anyhow::Error> {
     Ok(password)
 }
 
-#[tauri::command]
 pub async fn install_mongodb(app: AppHandle) -> Result<(), String> {
     let password = get_sudo_password(&app).await.map_err(|e| e.to_string())?;
 
@@ -140,11 +139,10 @@ pub async fn install_mongodb(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
 pub async fn is_mongodb_installed() -> bool {
     use std::process::Command;
     
-    println!("Checking MongoDB installation status...");
+    println!("Checking MongoDB installation status on Ubuntu...");
     
     // Check if mongod service exists
     let service_check = Command::new("systemctl")
@@ -197,6 +195,6 @@ pub async fn is_mongodb_installed() -> bool {
     let check_count = [service_check, binary_check, version_check].iter().filter(|&&check| check).count();
     let result = check_count >= 2;
     
-    println!("Final MongoDB installation status: {}", result);
+    println!("Final MongoDB installation status on Ubuntu: {}", result);
     result
 }
